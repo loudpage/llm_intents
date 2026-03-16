@@ -1,5 +1,3 @@
-"""Wikipedia tool."""
-
 import logging
 import re
 import urllib.parse
@@ -14,6 +12,8 @@ from .base_tool import BaseTool
 from .cache import SQLiteCache
 from .const import (
     CONF_WIKIPEDIA_NUM_RESULTS,
+    CONF_WIKIPEDIA_LANGUAGE,
+    DEFAULT_WIKIPEDIA_LANGUAGE,
     DOMAIN,
 )
 
@@ -49,7 +49,13 @@ class SearchWikipediaTool(BaseTool):
         query = tool_input.tool_args["query"]
         _LOGGER.info("Wikipedia search requested for: %s", query)
 
+        # Get language and num_results from config
+        lang = config_data.get(CONF_WIKIPEDIA_LANGUAGE, DEFAULT_WIKIPEDIA_LANGUAGE)
         num_results = int(config_data.get(CONF_WIKIPEDIA_NUM_RESULTS, 1))
+
+        # Build dynamic base URLs based on language
+        base_api_url = f"https://{lang}.wikipedia.org/w/api.php"
+        base_summary_url = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary"
 
         try:
             session = async_get_clientsession(hass)
@@ -63,13 +69,14 @@ class SearchWikipediaTool(BaseTool):
                 "srlimit": num_results,
             }
 
+            # Cache logic remains exactly as original (no language suffix on key)
             cache = SQLiteCache()
             cached_response = cache.get(__name__, search_params)
             if cached_response:
                 return cached_response
 
             async with session.get(
-                "https://en.wikipedia.org/w/api.php",
+                base_api_url,
                 params=search_params,
             ) as resp:
                 if resp.status != 200:
@@ -94,7 +101,7 @@ class SearchWikipediaTool(BaseTool):
                     snippet = re.sub(r"<[^>]+>", "", snippet)
 
                     # Try to get full summary
-                    summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(title)}"
+                    summary_url = f"{base_summary_url}/{urllib.parse.quote(title)}"
                     try:
                         async with session.get(summary_url) as summary_resp:
                             if summary_resp.status == 200:
